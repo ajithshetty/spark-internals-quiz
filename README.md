@@ -5,7 +5,6 @@ A self-contained, static multiple-choice quiz on Apache Spark internals — sche
 ## Run it locally
 
 
-
 `index.html` loads `questions.js` via a `<script src>` tag (not `fetch`), so you can just double-click `index.html` and it works straight from disk — no local server needed.  
   
 If you prefer a local server anyway:  
@@ -29,5 +28,4 @@ Every question links to primary, authoritative material — official Apache Spar
 - Progress is saved in `localStorage`, so a reload doesn't lose your answers
 - No dependencies beyond a Google Fonts import (IBM Plex Mono / IBM Plex Sans) — works offline otherwise
 
-```
-
+## Built with love from Claude and Cursor
