@@ -1,0 +1,586 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Spark Internals — Diagnostic Quiz</title>
+<meta name="description" content="50 multiple-choice questions on Apache Spark internals: scheduling, shuffle, Catalyst, Tungsten, joins, streaming, and AQE.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --navy-950:#060f1c;
+    --navy-900:#0a1a2f;
+    --navy-800:#0f2540;
+    --navy-700:#173456;
+    --grid-line: rgba(34,211,238,0.07);
+    --cyan:#22d3ee;
+    --cyan-dim:#0e7490;
+    --amber:#f59e0b;
+    --amber-dim:#92400e;
+    --green:#34d399;
+    --paper:#e7eef7;
+    --paper-dim:#93a5bd;
+    --mono: 'IBM Plex Mono', ui-monospace, monospace;
+    --sans: 'IBM Plex Sans', system-ui, sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{
+    margin:0;
+    background:
+      linear-gradient(var(--grid-line) 1px, transparent 1px) 0 0/40px 40px,
+      linear-gradient(90deg, var(--grid-line) 1px, transparent 1px) 0 0/40px 40px,
+      radial-gradient(ellipse at top, var(--navy-800), var(--navy-950) 65%);
+    background-color:var(--navy-950);
+    color:var(--paper);
+    font-family:var(--sans);
+    min-height:100vh;
+    padding-bottom:4rem;
+  }
+  a{color:var(--cyan);}
+  .wrap{max-width:880px;margin:0 auto;padding:2.5rem 1.25rem 0;}
+
+  /* ---------- Header / diagram ---------- */
+  header{position:relative;padding-bottom:1.5rem;border-bottom:1px solid var(--navy-700);margin-bottom:1.75rem;}
+  .eyebrow{
+    font-family:var(--mono);font-size:0.72rem;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--cyan);display:flex;align-items:center;gap:.6rem;margin-bottom:.75rem;
+  }
+  .eyebrow::before{content:"";width:8px;height:8px;border:1px solid var(--cyan);transform:rotate(45deg);flex:none;}
+  h1{
+    font-family:var(--mono);font-weight:700;font-size:clamp(1.6rem,4vw,2.3rem);
+    margin:0 0 .5rem;letter-spacing:-.01em;color:var(--paper);
+  }
+  h1 span{color:var(--cyan);}
+  .subtitle{color:var(--paper-dim);max-width:60ch;line-height:1.55;margin:0 0 1.5rem;font-size:.98rem;}
+
+  .diagram{
+    border:1px solid var(--navy-700);
+    background:linear-gradient(180deg, rgba(23,52,86,0.35), rgba(10,26,47,0.1));
+    border-radius:4px;
+    padding:1rem 1rem .75rem;
+    overflow-x:auto;
+  }
+  .diagram svg{display:block;min-width:640px;width:100%;height:auto;}
+  .diagram-caption{
+    font-family:var(--mono);font-size:.68rem;color:var(--paper-dim);
+    letter-spacing:.04em;margin-top:.5rem;text-align:center;
+  }
+
+  /* ---------- Controls ---------- */
+  .controls{
+    display:flex;flex-wrap:wrap;gap:.6rem;align-items:center;justify-content:space-between;
+    margin-bottom:1.5rem;
+  }
+  .controls-left,.controls-right{display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;}
+  select, button.chip{
+    font-family:var(--mono);font-size:.78rem;background:var(--navy-800);
+    color:var(--paper);border:1px solid var(--navy-700);border-radius:3px;
+    padding:.45rem .7rem;cursor:pointer;
+  }
+  select:focus-visible, button:focus-visible, .opt:focus-visible{
+    outline:2px solid var(--cyan);outline-offset:2px;
+  }
+  button.chip.active{border-color:var(--cyan);color:var(--cyan);}
+
+  .stat-strip{
+    display:flex;gap:1.25rem;font-family:var(--mono);font-size:.78rem;color:var(--paper-dim);
+  }
+  .stat-strip b{color:var(--cyan);font-weight:600;}
+  .stat-strip .wrong-count b{color:var(--amber);}
+
+  /* ---------- Progress ---------- */
+  .progress-track{height:3px;background:var(--navy-800);border-radius:2px;overflow:hidden;margin-bottom:1.75rem;}
+  .progress-fill{height:100%;background:linear-gradient(90deg,var(--cyan-dim),var(--cyan));transition:width .25s ease;}
+
+  /* ---------- Card ---------- */
+  .card{
+    border:1px solid var(--navy-700);
+    background:linear-gradient(180deg, rgba(15,37,64,0.6), rgba(10,26,47,0.4));
+    border-radius:6px;padding:1.75rem 1.75rem 1.5rem;position:relative;
+  }
+  .card::before{
+    content:"";position:absolute;top:0;left:0;width:28px;height:28px;
+    border-top:1px solid var(--cyan);border-left:1px solid var(--cyan);opacity:.6;
+  }
+  .card::after{
+    content:"";position:absolute;bottom:0;right:0;width:28px;height:28px;
+    border-bottom:1px solid var(--cyan);border-right:1px solid var(--cyan);opacity:.6;
+  }
+  .card-meta{
+    display:flex;justify-content:space-between;align-items:center;
+    font-family:var(--mono);font-size:.72rem;color:var(--paper-dim);margin-bottom:1rem;
+    letter-spacing:.04em;text-transform:uppercase;
+  }
+  .tag{
+    display:inline-block;padding:.15rem .5rem;border:1px solid var(--navy-700);
+    border-radius:2px;color:var(--cyan);margin-right:.4rem;
+  }
+  .tag.diff-easy{color:var(--green);border-color:rgba(52,211,153,.35);}
+  .tag.diff-medium{color:var(--cyan);border-color:rgba(34,211,238,.35);}
+  .tag.diff-hard{color:var(--amber);border-color:rgba(245,158,11,.35);}
+
+  .question-text{
+    font-size:1.15rem;line-height:1.5;margin:0 0 1.4rem;color:var(--paper);font-weight:500;
+  }
+
+  .options{list-style:none;margin:0 0 1.1rem;padding:0;display:flex;flex-direction:column;gap:.6rem;}
+  .opt{
+    display:flex;gap:.75rem;align-items:flex-start;
+    width:100%;text-align:left;font-family:var(--sans);font-size:.96rem;line-height:1.45;
+    background:var(--navy-900);border:1px solid var(--navy-700);border-radius:4px;
+    padding:.75rem .9rem;color:var(--paper);cursor:pointer;transition:border-color .15s, background .15s;
+  }
+  .opt:hover:not(:disabled){border-color:var(--cyan-dim);background:var(--navy-800);}
+  .opt:disabled{cursor:default;}
+  .opt .letter{
+    font-family:var(--mono);font-size:.78rem;color:var(--paper-dim);
+    border:1px solid var(--navy-700);border-radius:3px;width:1.6rem;height:1.6rem;
+    display:flex;align-items:center;justify-content:center;flex:none;margin-top:.05rem;
+  }
+  .opt.correct{border-color:var(--green);background:rgba(52,211,153,.08);}
+  .opt.correct .letter{border-color:var(--green);color:var(--green);}
+  .opt.incorrect{border-color:var(--amber);background:rgba(245,158,11,.08);}
+  .opt.incorrect .letter{border-color:var(--amber);color:var(--amber);}
+  .opt.faded{opacity:.45;}
+
+  .explanation{
+    display:none;margin-top:.25rem;padding:.9rem 1rem;border-radius:4px;
+    border:1px solid var(--navy-700);border-left:3px solid var(--cyan);
+    background:rgba(10,26,47,.6);font-size:.92rem;line-height:1.55;color:var(--paper-dim);
+  }
+  .explanation.show{display:block;}
+  .explanation .verdict{
+    font-family:var(--mono);font-weight:600;font-size:.78rem;letter-spacing:.05em;
+    text-transform:uppercase;display:block;margin-bottom:.4rem;
+  }
+  .explanation.right .verdict{color:var(--green);}
+  .explanation.wrong .verdict{color:var(--amber);}
+  .explanation .read-more{
+    display:inline-flex;align-items:center;gap:.35rem;margin-top:.7rem;
+    font-family:var(--mono);font-size:.76rem;color:var(--cyan);text-decoration:none;
+    border-top:1px dashed var(--navy-700);padding-top:.6rem;width:100%;
+  }
+  .explanation .read-more:hover{text-decoration:underline;}
+  .explanation .read-more::before{content:"↗";flex:none;}
+
+  .card-footer{
+    display:flex;justify-content:space-between;align-items:center;margin-top:1.5rem;
+    padding-top:1.1rem;border-top:1px solid var(--navy-700);
+  }
+  .nav-btn{
+    font-family:var(--mono);font-size:.82rem;background:transparent;color:var(--paper);
+    border:1px solid var(--navy-700);border-radius:4px;padding:.55rem 1rem;cursor:pointer;
+  }
+  .nav-btn.primary{border-color:var(--cyan);color:var(--cyan);}
+  .nav-btn:disabled{opacity:.35;cursor:not-allowed;}
+  .nav-btn:not(:disabled):hover{background:var(--navy-800);}
+
+  /* ---------- Jump grid ---------- */
+  .jump-grid{
+    margin-top:1.75rem;display:grid;grid-template-columns:repeat(auto-fill,minmax(2.4rem,1fr));gap:.4rem;
+  }
+  .jump-btn{
+    font-family:var(--mono);font-size:.72rem;aspect-ratio:1;border-radius:3px;
+    border:1px solid var(--navy-700);background:var(--navy-900);color:var(--paper-dim);cursor:pointer;
+  }
+  .jump-btn.current{border-color:var(--cyan);color:var(--cyan);}
+  .jump-btn.answered-right{border-color:rgba(52,211,153,.4);color:var(--green);}
+  .jump-btn.answered-wrong{border-color:rgba(245,158,11,.4);color:var(--amber);}
+
+  /* ---------- Results ---------- */
+  .results{display:none;text-align:center;padding:3rem 1rem;}
+  .results.show{display:block;}
+  .results .score{font-family:var(--mono);font-size:3rem;color:var(--cyan);font-weight:700;}
+  .results p{color:var(--paper-dim);}
+
+  footer.page-footer{
+    max-width:880px;margin:3rem auto 0;padding:1.5rem 1.25rem 0;border-top:1px solid var(--navy-700);
+    font-family:var(--mono);font-size:.72rem;color:var(--paper-dim);
+    display:flex;justify-content:space-between;flex-wrap:wrap;gap:.5rem;
+  }
+
+  @media (prefers-reduced-motion: reduce){
+    html{scroll-behavior:auto;}
+    .progress-fill, .opt{transition:none;}
+  }
+  @media (max-width:560px){
+    .card{padding:1.25rem 1.1rem;}
+    .controls{flex-direction:column;align-items:stretch;}
+    .stat-strip{justify-content:space-between;}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Just Enough Data · Reference Quiz</div>
+    <h1>Spark Internals<span>.</span> Diagnostic Quiz</h1>
+    <p class="subtitle">50 questions covering the execution model, shuffle, Catalyst, Tungsten, join strategies, caching, structured streaming, and adaptive query execution. Pick an answer to see whether you're right — and why.</p>
+
+    <div class="diagram" aria-hidden="true">
+      <svg viewBox="0 0 860 190" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+            <path d="M0,0 L6,3 L0,6 Z" fill="#22d3ee"/>
+          </marker>
+        </defs>
+        <!-- Driver -->
+        <rect x="20" y="20" width="150" height="56" rx="3" fill="none" stroke="#22d3ee" stroke-width="1.2"/>
+        <text x="95" y="43" text-anchor="middle" fill="#e7eef7" font-family="IBM Plex Mono, monospace" font-size="12" font-weight="600">DRIVER</text>
+        <text x="95" y="60" text-anchor="middle" fill="#93a5bd" font-family="IBM Plex Mono, monospace" font-size="9">DAGScheduler</text>
+
+        <!-- Cluster manager -->
+        <rect x="230" y="20" width="170" height="56" rx="3" fill="none" stroke="#f59e0b" stroke-width="1.2"/>
+        <text x="315" y="43" text-anchor="middle" fill="#e7eef7" font-family="IBM Plex Mono, monospace" font-size="12" font-weight="600">CLUSTER MANAGER</text>
+        <text x="315" y="60" text-anchor="middle" fill="#93a5bd" font-family="IBM Plex Mono, monospace" font-size="9">YARN · K8s · Standalone</text>
+
+        <line x1="170" y1="48" x2="230" y2="48" stroke="#22d3ee" stroke-width="1.2" marker-end="url(#arrow)"/>
+        <text x="200" y="40" text-anchor="middle" fill="#93a5bd" font-family="IBM Plex Mono, monospace" font-size="8">requests</text>
+
+        <!-- Executors -->
+        <g>
+          <rect x="470" y="10" width="120" height="42" rx="3" fill="none" stroke="#34d399" stroke-width="1.1"/>
+          <text x="530" y="35" text-anchor="middle" fill="#e7eef7" font-family="IBM Plex Mono, monospace" font-size="10.5">EXECUTOR 1</text>
+          <rect x="470" y="63" width="120" height="42" rx="3" fill="none" stroke="#34d399" stroke-width="1.1"/>
+          <text x="530" y="88" text-anchor="middle" fill="#e7eef7" font-family="IBM Plex Mono, monospace" font-size="10.5">EXECUTOR 2</text>
+          <rect x="470" y="116" width="120" height="42" rx="3" fill="none" stroke="#34d399" stroke-width="1.1"/>
+          <text x="530" y="141" text-anchor="middle" fill="#e7eef7" font-family="IBM Plex Mono, monospace" font-size="10.5">EXECUTOR N</text>
+        </g>
+        <line x1="400" y1="35" x2="470" y2="31" stroke="#f59e0b" stroke-width="1" marker-end="url(#arrow)"/>
+        <line x1="400" y1="55" x2="470" y2="84" stroke="#f59e0b" stroke-width="1" marker-end="url(#arrow)"/>
+        <line x1="400" y1="65" x2="470" y2="137" stroke="#f59e0b" stroke-width="1" marker-end="url(#arrow)"/>
+        <text x="435" y="118" text-anchor="middle" fill="#93a5bd" font-family="IBM Plex Mono, monospace" font-size="8">launches</text>
+
+        <!-- Task pipeline -->
+        <text x="20" y="145" fill="#93a5bd" font-family="IBM Plex Mono, monospace" font-size="9" letter-spacing="1">JOB</text>
+        <text x="20" y="163" fill="#93a5bd" font-family="IBM Plex Mono, monospace" font-size="8">action() triggers</text>
+
+        <g font-family="IBM Plex Mono, monospace" font-size="10">
+          <rect x="15" y="170" width="46" height="18" rx="2" fill="none" stroke="#22d3ee" stroke-width="1"/>
+          <text x="38" y="182.5" text-anchor="middle" fill="#22d3ee">STAGE</text>
+          <line x1="61" y1="179" x2="82" y2="179" stroke="#22d3ee" stroke-width="1" marker-end="url(#arrow)"/>
+          <text x="93" y="182.5" fill="#93a5bd" font-size="9">split on shuffle boundary</text>
+        </g>
+
+        <line x1="20" y1="76" x2="20" y2="170" stroke="#173456" stroke-width="1"/>
+      </svg>
+    </div>
+    <div class="diagram-caption">DRIVER PLANS THE DAG → CLUSTER MANAGER ALLOCATES EXECUTORS → STAGES SPLIT ON SHUFFLE BOUNDARIES → TASKS RUN ONE PER PARTITION</div>
+  </header>
+
+  <div class="controls">
+    <div class="controls-left">
+      <select id="categoryFilter" aria-label="Filter by category">
+        <option value="all">All categories</option>
+      </select>
+      <button class="chip" id="shuffleBtn" type="button">Shuffle order</button>
+      <button class="chip" id="resetBtn" type="button">Reset</button>
+    </div>
+    <div class="stat-strip">
+      <span>Q <b id="statCurrent">1</b>/<span id="statTotal">50</span></span>
+      <span class="right-count">Correct <b id="statRight">0</b></span>
+      <span class="wrong-count">Missed <b id="statWrong">0</b></span>
+    </div>
+  </div>
+
+  <div class="progress-track"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
+
+  <main id="quizCard" class="card">
+    <div class="card-meta">
+      <span><span class="tag" id="qCategory">Category</span><span class="tag diff-medium" id="qDifficulty">medium</span></span>
+      <span id="qIndex">Question 1 of 50</span>
+    </div>
+    <p class="question-text" id="qText">Loading question…</p>
+    <ul class="options" id="qOptions"></ul>
+    <div class="explanation" id="qExplanation">
+      <span class="verdict" id="qVerdict"></span>
+      <span id="qExplanationText"></span>
+      <a class="read-more" id="qReadMore" href="#" target="_blank" rel="noopener noreferrer" style="display:none;"></a>
+    </div>
+    <div class="card-footer">
+      <button class="nav-btn" id="prevBtn" type="button">← Previous</button>
+      <button class="nav-btn primary" id="nextBtn" type="button" disabled>Next →</button>
+    </div>
+  </main>
+
+  <div class="jump-grid" id="jumpGrid" aria-label="Jump to question"></div>
+
+  <section class="results" id="results">
+    <div class="eyebrow" style="justify-content:center;">Session complete</div>
+    <div class="score" id="finalScore">0 / 50</div>
+    <p id="resultsNote">You've answered every question in this set.</p>
+    <button class="nav-btn primary" id="restartBtn" type="button">Restart quiz</button>
+  </section>
+
+  <footer class="page-footer">
+    <span>Spark Internals Quiz — static, no backend</span>
+    <span>Extend it: edit the QUIZ_QUESTIONS array in this file</span>
+  </footer>
+</div>
+
+<script src="questions.js"></script>
+<script>
+(function(){
+  "use strict";
+
+  var STORAGE_KEY = "spark-quiz-state-v1";
+  var allQuestions = Array.isArray(window.QUIZ_QUESTIONS) ? window.QUIZ_QUESTIONS.slice() : [];
+  var order = allQuestions.map(function(q, i){ return i; });
+  var current = 0;
+  var answers = {}; // questionId -> { chosen: idx, correct: bool }
+  var activeCategory = "all";
+
+  var els = {
+    categoryFilter: document.getElementById("categoryFilter"),
+    shuffleBtn: document.getElementById("shuffleBtn"),
+    resetBtn: document.getElementById("resetBtn"),
+    statCurrent: document.getElementById("statCurrent"),
+    statTotal: document.getElementById("statTotal"),
+    statRight: document.getElementById("statRight"),
+    statWrong: document.getElementById("statWrong"),
+    progressFill: document.getElementById("progressFill"),
+    card: document.getElementById("quizCard"),
+    qCategory: document.getElementById("qCategory"),
+    qDifficulty: document.getElementById("qDifficulty"),
+    qIndex: document.getElementById("qIndex"),
+    qText: document.getElementById("qText"),
+    qOptions: document.getElementById("qOptions"),
+    qExplanation: document.getElementById("qExplanation"),
+    qVerdict: document.getElementById("qVerdict"),
+    qExplanationText: document.getElementById("qExplanationText"),
+    qReadMore: document.getElementById("qReadMore"),
+    prevBtn: document.getElementById("prevBtn"),
+    nextBtn: document.getElementById("nextBtn"),
+    jumpGrid: document.getElementById("jumpGrid"),
+    results: document.getElementById("results"),
+    finalScore: document.getElementById("finalScore"),
+    restartBtn: document.getElementById("restartBtn")
+  };
+
+  function loadState(){
+    try{
+      var raw = localStorage.getItem(STORAGE_KEY);
+      if(!raw) return;
+      var saved = JSON.parse(raw);
+      if(saved && saved.answers) answers = saved.answers;
+    }catch(e){ /* ignore corrupt state */ }
+  }
+  function saveState(){
+    try{
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ answers: answers }));
+    }catch(e){ /* storage unavailable — quiz still works, just won't persist */ }
+  }
+
+  function populateCategories(){
+    var cats = [];
+    allQuestions.forEach(function(q){ if(cats.indexOf(q.category) === -1) cats.push(q.category); });
+    cats.sort();
+    cats.forEach(function(c){
+      var opt = document.createElement("option");
+      opt.value = c; opt.textContent = c;
+      els.categoryFilter.appendChild(opt);
+    });
+  }
+
+  function visibleOrder(){
+    return order.filter(function(i){
+      return activeCategory === "all" || allQuestions[i].category === activeCategory;
+    });
+  }
+
+  function shuffleArray(arr){
+    for(var i = arr.length - 1; i > 0; i--){
+      var j = Math.floor(Math.random() * (i + 1));
+      var t = arr[i]; arr[i] = arr[j]; arr[j] = t;
+    }
+    return arr;
+  }
+
+  function buildJumpGrid(){
+    var vis = visibleOrder();
+    els.jumpGrid.innerHTML = "";
+    vis.forEach(function(qi, pos){
+      var q = allQuestions[qi];
+      var btn = document.createElement("button");
+      btn.className = "jump-btn";
+      btn.type = "button";
+      btn.textContent = String(pos + 1);
+      var a = answers[q.id];
+      if(a) btn.classList.add(a.correct ? "answered-right" : "answered-wrong");
+      if(pos === current) btn.classList.add("current");
+      btn.addEventListener("click", function(){ current = pos; render(); });
+      els.jumpGrid.appendChild(btn);
+    });
+  }
+
+  function computeStats(){
+    var right = 0, wrong = 0;
+    Object.keys(answers).forEach(function(id){
+      if(answers[id].correct) right++; else wrong++;
+    });
+    return { right: right, wrong: wrong };
+  }
+
+  function render(){
+    var vis = visibleOrder();
+    if(vis.length === 0){
+      els.qText.textContent = "No questions in this category.";
+      els.qOptions.innerHTML = "";
+      return;
+    }
+    if(current >= vis.length) current = vis.length - 1;
+    if(current < 0) current = 0;
+
+    var q = allQuestions[vis[current]];
+    var saved = answers[q.id];
+
+    els.qCategory.textContent = q.category;
+    els.qDifficulty.textContent = q.difficulty;
+    els.qDifficulty.className = "tag diff-" + q.difficulty;
+    els.qIndex.textContent = "Question " + (current + 1) + " of " + vis.length;
+    els.qText.textContent = q.question;
+    els.statCurrent.textContent = current + 1;
+    els.statTotal.textContent = vis.length;
+
+    els.qOptions.innerHTML = "";
+    q.options.forEach(function(optText, idx){
+      var li = document.createElement("li");
+      var btn = document.createElement("button");
+      btn.className = "opt";
+      btn.type = "button";
+      var letter = document.createElement("span");
+      letter.className = "letter";
+      letter.textContent = String.fromCharCode(65 + idx);
+      var label = document.createElement("span");
+      label.textContent = optText;
+      btn.appendChild(letter);
+      btn.appendChild(label);
+
+      if(saved){
+        btn.disabled = true;
+        if(idx === q.answer) btn.classList.add("correct");
+        if(idx === saved.chosen && idx !== q.answer) btn.classList.add("incorrect");
+        if(idx !== q.answer && idx !== saved.chosen) btn.classList.add("faded");
+      } else {
+        btn.addEventListener("click", function(){ selectAnswer(q, idx); });
+      }
+      li.appendChild(btn);
+      els.qOptions.appendChild(li);
+    });
+
+    if(saved){
+      var isRight = saved.correct;
+      els.qExplanation.className = "explanation show " + (isRight ? "right" : "wrong");
+      els.qVerdict.textContent = isRight ? "✓ Correct" : "✗ Not quite";
+      els.qExplanationText.textContent = q.explanation;
+      if(q.reference && q.reference.url){
+        els.qReadMore.href = q.reference.url;
+        els.qReadMore.textContent = "Read more — " + q.reference.label;
+        els.qReadMore.style.display = "inline-flex";
+      } else {
+        els.qReadMore.style.display = "none";
+      }
+      els.nextBtn.disabled = false;
+    } else {
+      els.qExplanation.className = "explanation";
+      els.qReadMore.style.display = "none";
+      els.nextBtn.disabled = true;
+    }
+
+    els.prevBtn.disabled = current === 0;
+    els.nextBtn.textContent = (current === vis.length - 1) ? "Finish →" : "Next →";
+
+    var stats = computeStats();
+    els.statRight.textContent = stats.right;
+    els.statWrong.textContent = stats.wrong;
+    els.progressFill.style.width = ((current) / Math.max(1, vis.length - 1) * 100).toFixed(1) + "%";
+
+    buildJumpGrid();
+    els.results.classList.remove("show");
+    els.card.style.display = "block";
+    els.jumpGrid.style.display = "grid";
+  }
+
+  function selectAnswer(q, idx){
+    var correct = idx === q.answer;
+    answers[q.id] = { chosen: idx, correct: correct };
+    saveState();
+    render();
+  }
+
+  function showResults(){
+    var vis = visibleOrder();
+    var right = 0;
+    vis.forEach(function(qi){
+      var q = allQuestions[qi];
+      if(answers[q.id] && answers[q.id].correct) right++;
+    });
+    els.finalScore.textContent = right + " / " + vis.length;
+    els.results.classList.add("show");
+    els.card.style.display = "none";
+    els.jumpGrid.style.display = "none";
+  }
+
+  els.nextBtn.addEventListener("click", function(){
+    var vis = visibleOrder();
+    if(current === vis.length - 1){
+      var q = allQuestions[vis[current]];
+      if(answers[q.id]) { showResults(); return; }
+    }
+    current++;
+    render();
+  });
+  els.prevBtn.addEventListener("click", function(){ current = Math.max(0, current - 1); render(); });
+
+  els.categoryFilter.addEventListener("change", function(){
+    activeCategory = els.categoryFilter.value;
+    current = 0;
+    render();
+  });
+
+  els.shuffleBtn.addEventListener("click", function(){
+    shuffleArray(order);
+    current = 0;
+    render();
+  });
+
+  els.resetBtn.addEventListener("click", function(){
+    if(!confirm("Clear all your answers and start over?")) return;
+    answers = {};
+    saveState();
+    current = 0;
+    render();
+  });
+
+  els.restartBtn.addEventListener("click", function(){
+    answers = {};
+    saveState();
+    current = 0;
+    render();
+  });
+
+  document.addEventListener("keydown", function(e){
+    if(["1","2","3","4"].indexOf(e.key) !== -1){
+      var vis = visibleOrder();
+      var q = allQuestions[vis[current]];
+      if(!answers[q.id]){
+        var idx = parseInt(e.key, 10) - 1;
+        if(idx < q.options.length) selectAnswer(q, idx);
+      }
+    } else if(e.key === "ArrowRight" && !els.nextBtn.disabled){
+      els.nextBtn.click();
+    } else if(e.key === "ArrowLeft" && !els.prevBtn.disabled){
+      els.prevBtn.click();
+    }
+  });
+
+  // Init
+  loadState();
+  populateCategories();
+  render();
+})();
+</script>
+</body>
+</html>
